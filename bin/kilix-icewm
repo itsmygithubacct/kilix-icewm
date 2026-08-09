@@ -63,36 +63,17 @@ def _add_sdk_path() -> str:
     sys.exit("kilix-icewm: cannot find kilix_sdk; run this through `kilix icewm`")
 
 
-# The content IDs this desktop surfaces, with the label and section to show
-# them under. This list is declared rather than discovered because
-# ``kilix_sdk.content.Catalog`` exposes only ``get``/``require`` -- there is no
-# public enumeration -- so every provider names its own IDs. Kilix 95 does
-# exactly the same thing in its games.py. Keep the two in step when catalog
-# content is added; see README "Known rough edges".
-CATALOG_IDS = (
-    ("bashed-earth", "Bashed Earth", "game"),
-    ("chess-bash", "Chess Bash", "game"),
-    ("joustix", "Joustix", "game"),
-    ("kilix-fishtank", "Kilix Fishtank", "game"),
-    ("kilix-jpak", "Kilix JPak", "game"),
-    ("kilix-pong", "Kilix Pong", "game"),
-    ("kilix-rancher", "Kilix Rancher", "game"),
-    ("terminal-lander", "Kilix Lander", "game"),
-    ("kitty-brokeout", "Kilix Brokeout", "game"),
-    ("doom", "Doom", "game"),
-    ("dosbox", "DOSBox", "app"),
-    ("kilix-amp", "Kilix Amp", "app"),
-)
-
-
 def _catalog_records(sdk_content) -> list:
-    """Resolve the declared content IDs through the public catalog API.
+    """Enumerate the catalog. Every record, its own label, its own kind.
 
-    A record the catalog does not know is skipped rather than shown: a menu row
-    that cannot resolve to a source would fail only once the user clicked it.
-    A catalog that cannot be read at all costs the Games/Applications sections
-    and nothing else -- the terminal row is unconditional, so the user always
-    has a way to act.
+    ``Catalog`` is iterable and each ``ContentSpec`` already carries ``label``,
+    ``kind`` and ``icon``, so nothing here is hardcoded: catalog content added
+    upstream appears in this menu without touching this file. A provider-side
+    ID table would only be a copy that drifts.
+
+    A catalog that cannot be read costs the Games/Applications sections and
+    nothing else -- the terminal row is unconditional, so the user always has a
+    way to act.
     """
     if sdk_content is None:
         return []
@@ -101,17 +82,15 @@ def _catalog_records(sdk_content) -> list:
     except Exception:
         return []
     out = []
-    for content_id, label, kind in CATALOG_IDS:
-        try:
-            spec = catalog.get(content_id)
-        except Exception:
-            spec = None
-        if spec is None:
+    for spec in catalog:
+        content_id = getattr(spec, "content_id", None)
+        if not content_id:
             continue
         out.append({
             "id": content_id,
-            "name": label,
-            "kind": kind,
+            "name": getattr(spec, "label", None) or content_id,
+            "kind": getattr(spec, "kind", "") or "app",
+            "icon": getattr(spec, "icon", "") or "-",
             # Installed state is the host's business: `kilix run` installs on
             # first use, so every known record is offered as a launch row and
             # the host decides whether that means "start" or "fetch first".
