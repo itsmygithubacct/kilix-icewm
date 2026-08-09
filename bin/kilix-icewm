@@ -78,25 +78,22 @@ def _catalog_records(sdk_content) -> list:
     if sdk_content is None:
         return []
     try:
-        catalog = sdk_content.default_catalog()
+        records = sdk_content.menu_records()
     except Exception:
         return []
-    out = []
-    for spec in catalog:
-        content_id = getattr(spec, "content_id", None)
-        if not content_id:
-            continue
-        out.append({
-            "id": content_id,
-            "name": getattr(spec, "label", None) or content_id,
-            "kind": getattr(spec, "kind", "") or "app",
-            "icon": getattr(spec, "icon", "") or "-",
+    return [
+        {
+            "id": rec["id"],
+            "name": rec["label"],
+            "kind": rec["kind"],
+            "icon": rec["icon"] or "-",
             # Installed state is the host's business: `kilix run` installs on
             # first use, so every known record is offered as a launch row and
             # the host decides whether that means "start" or "fetch first".
             "installed": True,
-        })
-    return out
+        }
+        for rec in records
+    ]
 
 
 def _xdg_records(sdk_xdgapps) -> list:
