@@ -68,10 +68,30 @@ check_build_deps() {
   command -v pkg-config >/dev/null 2>&1 || missing+=(pkg-config)
   { command -v c++ >/dev/null 2>&1 || command -v g++ >/dev/null 2>&1; } \
     || missing+=("a C++ compiler")
-  if [ "${#missing[@]}" -gt 0 ]; then
-    die "missing build tools: ${missing[*]}
-Install them, or use the distribution's icewm package and set
-KILIX_ICEWM_PREFIX to the prefix that contains bin/icewm-session."
+  # The X11 development packages are the ones people actually lack, and cmake
+  # reports their absence as a link failure in a scratch directory -- naming
+  # them here turns an unreadable build log into one apt-get line.
+  local libs=(x11 xext xrandr xft fontconfig)
+  local lacking=()
+  if command -v pkg-config >/dev/null 2>&1; then
+    local lib
+    for lib in "${libs[@]}"; do
+      pkg-config --exists "$lib" 2>/dev/null || lacking+=("$lib")
+    done
+  fi
+  if [ "${#missing[@]}" -gt 0 ] || [ "${#lacking[@]}" -gt 0 ]; then
+    local msg="cannot build IceWM here."
+    [ "${#missing[@]}" -gt 0 ] && msg+="
+  missing tools:      ${missing[*]}"
+    [ "${#lacking[@]}" -gt 0 ] && msg+="
+  missing X11 devel:  ${lacking[*]}
+  on Debian/Ubuntu:   sudo apt-get install libx11-dev libxext-dev \\
+                        libxrandr-dev libxft-dev libfontconfig-dev"
+    msg+="
+
+Alternatively use a packaged IceWM and skip the build entirely:
+  sudo apt-get install icewm && export KILIX_ICEWM_PREFIX=/usr"
+    die "$msg"
   fi
 }
 
