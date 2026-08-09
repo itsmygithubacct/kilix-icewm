@@ -1,0 +1,4 @@
+[submodule "third_party/icewm"]
+	path = third_party/icewm
+	url = https://github.com/ice-wm/icewm.git
+	shallow = true

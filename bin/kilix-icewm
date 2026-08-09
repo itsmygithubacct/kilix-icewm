@@ -1,0 +1,278 @@
+#!/usr/bin/env python3
+"""Kilix IceWM desktop provider.
+
+Runs IceWM on a private X display owned by ``kilix_sdk.xapp`` and presents it
+in the Kilix pane, with IceWM's own menu and toolbar generated from the Kilix
+content catalog so the desktop and the host agree about what is installed.
+
+Selection is the same as any other provider::
+
+    kilix icewm
+
+Design notes worth knowing before changing this file:
+
+* The private display, capture, RandR refit and XTest input injection all live
+  in the SDK. This provider supplies configuration and supervision only.
+* The IceWM configuration directory is private and rewritten every launch.
+  IceWM never sees, and can never write, the operator's ``~/.icewm``.
+* IceWM is LGPL-2.0 and stays in its own submodule under its own licence. It is
+  built, not vendored, precisely so that boundary stays visible.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(_HERE), "src"))
+
+from kilix_icewm.menu import (  # noqa: E402
+    build_menu_model,
+    render_menu,
+    render_toolbar,
+)
+from kilix_icewm.session import (  # noqa: E402
+    IceWMConfig,
+    IceWMProcess,
+    resolve_icewm,
+)
+
+REQUIRED_SDK = "1.9"
+
+
+def _add_sdk_path() -> str:
+    """Put the host's ``kilix_sdk`` on the path.
+
+    KILIX_HOME is exported by the launcher for providers; the sibling-checkout
+    fallback keeps a standalone `./bin/kilix-icewm` working for development.
+    """
+    home = os.environ.get("KILIX_HOME")
+    candidates = []
+    if home:
+        candidates.append(os.path.join(home, "config"))
+    src = os.environ.get("GPU_TERMINAL_SOURCE_HOME",
+                         os.path.expanduser("~/.local/gpu_terminal/sources"))
+    candidates.append(os.path.join(src, "kilix", "config"))
+    candidates.append(os.path.join(os.path.dirname(os.path.dirname(_HERE)),
+                                   "..", "kilix", "config"))
+    for path in candidates:
+        if os.path.isdir(os.path.join(path, "kilix_sdk")):
+            sys.path.insert(0, path)
+            return path
+    sys.exit("kilix-icewm: cannot find kilix_sdk; run this through `kilix icewm`")
+
+
+# The content IDs this desktop surfaces, with the label and section to show
+# them under. This list is declared rather than discovered because
+# ``kilix_sdk.content.Catalog`` exposes only ``get``/``require`` -- there is no
+# public enumeration -- so every provider names its own IDs. Kilix 95 does
+# exactly the same thing in its games.py. Keep the two in step when catalog
+# content is added; see README "Known rough edges".
+CATALOG_IDS = (
+    ("bashed-earth", "Bashed Earth", "game"),
+    ("chess-bash", "Chess Bash", "game"),
+    ("joustix", "Joustix", "game"),
+    ("kilix-fishtank", "Kilix Fishtank", "game"),
+    ("kilix-jpak", "Kilix JPak", "game"),
+    ("kilix-pong", "Kilix Pong", "game"),
+    ("kilix-rancher", "Kilix Rancher", "game"),
+    ("terminal-lander", "Kilix Lander", "game"),
+    ("kitty-brokeout", "Kilix Brokeout", "game"),
+    ("doom", "Doom", "game"),
+    ("dosbox", "DOSBox", "app"),
+    ("kilix-amp", "Kilix Amp", "app"),
+)
+
+
+def _catalog_records(sdk_content) -> list:
+    """Resolve the declared content IDs through the public catalog API.
+
+    A record the catalog does not know is skipped rather than shown: a menu row
+    that cannot resolve to a source would fail only once the user clicked it.
+    A catalog that cannot be read at all costs the Games/Applications sections
+    and nothing else -- the terminal row is unconditional, so the user always
+    has a way to act.
+    """
+    if sdk_content is None:
+        return []
+    try:
+        catalog = sdk_content.default_catalog()
+    except Exception:
+        return []
+    out = []
+    for content_id, label, kind in CATALOG_IDS:
+        try:
+            spec = catalog.get(content_id)
+        except Exception:
+            spec = None
+        if spec is None:
+            continue
+        out.append({
+            "id": content_id,
+            "name": label,
+            "kind": kind,
+            # Installed state is the host's business: `kilix run` installs on
+            # first use, so every known record is offered as a launch row and
+            # the host decides whether that means "start" or "fetch first".
+            "installed": True,
+        })
+    return out
+
+
+def _xdg_records(sdk_xdgapps) -> list:
+    if sdk_xdgapps is None:
+        return []
+    for attr in ("applications", "discover", "list_applications"):
+        fn = getattr(sdk_xdgapps, attr, None)
+        if callable(fn):
+            try:
+                return list(fn() or [])
+            except Exception:
+                return []
+    return []
+
+
+def write_config(root: str, *, kilix_cmd: str, terminal: str) -> str:
+    """Generate IceWM's private configuration for this launch."""
+    try:
+        from kilix_sdk import content as sdk_content
+    except Exception:
+        sdk_content = None
+    try:
+        from kilix_sdk import xdgapps as sdk_xdgapps
+    except Exception:
+        sdk_xdgapps = None
+
+    model = build_menu_model(
+        catalog=_catalog_records(sdk_content),
+        xdg_apps=_xdg_records(sdk_xdgapps),
+        kilix_cmd=kilix_cmd,
+    )
+    cfg = IceWMConfig(root)
+    cfg.write({
+        "menu": render_menu(model, kilix_cmd=kilix_cmd, terminal=terminal),
+        "toolbar": render_toolbar(model, kilix_cmd=kilix_cmd, terminal=terminal),
+        "preferences": PREFERENCES,
+    })
+    return cfg.root
+
+
+# Chosen for a captured, keyboard-driven pane rather than a physical desktop:
+# no wallpaper decode we would only re-encode, no animations that would turn
+# every frame into damage, and a taskbar that stays put.
+PREFERENCES = """\
+# Generated by kilix-icewm. Edits are overwritten on next launch.
+TaskBarAutoHide=0
+TaskBarShowClock=1
+TaskBarShowAllWindows=1
+ShowMoveSizeStatus=0
+QuickSwitch=1
+DesktopBackgroundColor="rgb:20/20/28"
+UseRootPixmap=0
+Animations=0
+MenuMouseTracking=1
+WorkspaceNames=" 1 ", " 2 ", " 3 ", " 4 "
+"""
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(prog="kilix-icewm", add_help=True)
+    parser.add_argument("--version", action="store_true",
+                        help="print the provider version and exit")
+    parser.add_argument("--check", action="store_true",
+                        help="verify the SDK, config generation and IceWM "
+                             "binary without starting a display")
+    parser.add_argument("--print-config", action="store_true",
+                        help="write the generated IceWM config and print its path")
+    args = parser.parse_args(argv)
+
+    version_file = os.path.join(os.path.dirname(_HERE), "VERSION")
+    try:
+        version = open(version_file, encoding="utf-8").read().strip()
+    except OSError:
+        version = "unknown"
+    if args.version:
+        print(version)
+        return 0
+
+    _add_sdk_path()
+    try:
+        from kilix_sdk import require_compatible
+        require_compatible(REQUIRED_SDK)
+    except ImportError:
+        return _fail("kilix_sdk is not importable; update the Kilix checkout")
+    except Exception as exc:
+        return _fail(f"incompatible Kilix SDK: {exc}")
+
+    storage = os.environ.get(
+        "KILIX_ICEWM_STORAGE_HOME",
+        os.path.expanduser("~/.local/gpu_terminal/kilix-icewm"))
+    kilix_cmd = os.environ.get("KILIX_COMMAND", "kilix")
+    terminal = os.environ.get("KILIX_TERMINAL", kilix_cmd)
+    config_root = os.path.join(storage, "config", "icewm")
+
+    if args.print_config:
+        print(write_config(config_root, kilix_cmd=kilix_cmd, terminal=terminal))
+        return 0
+
+    prefix = os.environ.get("KILIX_ICEWM_PREFIX", os.path.join(storage, "prefix"))
+    session_bin, wm_bin = resolve_icewm(prefix)
+    binary = session_bin or wm_bin
+
+    if args.check:
+        write_config(config_root, kilix_cmd=kilix_cmd, terminal=terminal)
+        print(f"kilix-icewm {version}")
+        print(f"  config:  {config_root}")
+        print(f"  icewm:   {binary or 'NOT BUILT (run scripts/build-icewm.sh)'}")
+        return 0 if binary else 1
+
+    if not binary:
+        return _fail("IceWM is not built yet; run scripts/build-icewm.sh "
+                     "(the Kilix launcher does this on first selection)")
+
+    write_config(config_root, kilix_cmd=kilix_cmd, terminal=terminal)
+    return _run_desktop(binary, config_root)
+
+
+def _run_desktop(binary: str, config_root: str) -> int:
+    """Start the private display, run IceWM on it, and present it in the pane.
+
+    NOT YET EXERCISED against a live Kilix pane. The pieces below are the SDK's
+    documented surface, but this path has had no end-to-end smoke test, so it
+    reports rather than pretends when something is missing.
+    """
+    from kilix_sdk import xapp
+
+    cols = int(os.environ.get("KILIX_PANE_WIDTH_PX") or 1280)
+    rows = int(os.environ.get("KILIX_PANE_HEIGHT_PX") or 800)
+    session = xapp.XAppSession("kilix-icewm", cols, rows)
+    proc = None
+    try:
+        session.start_xvfb()
+        env = IceWMConfig(config_root).env_for()
+        proc = IceWMProcess(binary, session.display, env=env,
+                            xauthority=session.xauthority)
+        proc.start()
+        return session.run_until_exit(proc.proc) if hasattr(
+            session, "run_until_exit") else _fail(
+            "this Kilix SDK has no xapp.run_until_exit; the presentation loop "
+            "needs the host's app runner (see config/apprun.py)")
+    finally:
+        if proc is not None:
+            detail = proc.failure_text()
+            proc.stop()
+            if detail:
+                print(f"kilix-icewm: icewm said: {detail}", file=sys.stderr)
+        close = getattr(session, "close", None)
+        if callable(close):
+            close()
+
+
+def _fail(message: str) -> int:
+    print(f"kilix-icewm: {message}", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
