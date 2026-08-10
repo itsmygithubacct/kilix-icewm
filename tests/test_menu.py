@@ -77,10 +77,33 @@ class TestModel(unittest.TestCase):
         total = sum(len(v) for v in m.values())
         self.assertEqual(total, 3)
 
-    def test_installed_row_runs_via_kilix_so_one_install_path_exists(self):
+    def test_catalog_rows_use_the_shared_game_and_application_verbs(self):
         m = build_menu_model(catalog=self._catalog())
-        self.assertEqual(m["games"][0].command, ["kilix", "run", "kilix-pong"])
+        self.assertEqual(
+            m["games"][0].command,
+            ["kilix", "games", "play", "kilix-pong"],
+        )
+        self.assertEqual(
+            m["apps"][0].command,
+            ["kilix", "app", "window", "kilix-amp"],
+        )
         self.assertEqual(m["install"][0].command, ["kilix", "install", "bashed-earth"])
+
+    def test_provider_supplied_shared_plan_is_authoritative(self):
+        catalog = [{
+            "id": "kilix-pdf-conversion",
+            "name": "PDF Conversion",
+            "kind": "app",
+            "icon": "doc_text",
+            "installed": True,
+            "command": ["/kilix", "app", "window", "kilix-pdf-conversion"],
+        }]
+        row = build_menu_model(catalog=catalog)["apps"][0]
+        self.assertEqual(
+            row.command,
+            ["/kilix", "app", "window", "kilix-pdf-conversion"],
+        )
+        self.assertEqual(row.icon, "doc_text")
 
     def test_entries_sorted_case_insensitively(self):
         cat = [

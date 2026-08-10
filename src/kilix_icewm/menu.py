@@ -116,7 +116,14 @@ def build_menu_model(*, catalog=(), xdg_apps=(), kilix_cmd="kilix"):
             continue
         ident = rec.get("id") or name
         if rec.get("installed"):
-            row = MenuEntry(name, [kilix_cmd, "run", ident])
+            command = rec.get("command")
+            if not command:
+                command = (
+                    [kilix_cmd, "games", "play", ident]
+                    if rec.get("kind") == "game"
+                    else [kilix_cmd, "app", "window", ident]
+                )
+            row = MenuEntry(name, command, rec.get("icon") or "-")
             (games if rec.get("kind") == "game" else apps).append(row)
         else:
             install.append(MenuEntry(f"Install {name}", [kilix_cmd, "install", ident]))

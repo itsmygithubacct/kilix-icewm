@@ -38,7 +38,7 @@ from kilix_icewm.session import (  # noqa: E402
     resolve_icewm,
 )
 
-REQUIRED_SDK = "1.9"
+REQUIRED_SDK = "1.10"
 
 
 def _add_sdk_path() -> str:
@@ -63,7 +63,7 @@ def _add_sdk_path() -> str:
     sys.exit("kilix-icewm: cannot find kilix_sdk; run this through `kilix icewm`")
 
 
-def _catalog_records(sdk_content) -> list:
+def _catalog_records(sdk_content, kilix_cmd: str) -> list:
     """Enumerate the catalog. Every record, its own label, its own kind.
 
     ``Catalog`` is iterable and each ``ContentSpec`` already carries ``label``,
@@ -81,8 +81,9 @@ def _catalog_records(sdk_content) -> list:
         records = sdk_content.menu_records()
     except Exception:
         return []
-    return [
-        {
+    rendered = []
+    for rec in records:
+        item = {
             "id": rec["id"],
             "name": rec["label"],
             "kind": rec["kind"],
@@ -92,8 +93,15 @@ def _catalog_records(sdk_content) -> list:
             # the host decides whether that means "start" or "fetch first".
             "installed": True,
         }
-        for rec in records
-    ]
+        if rec["kind"] == "app":
+            try:
+                plan = sdk_content.application_plan(
+                    rec["id"], "window", launcher=kilix_cmd)
+            except Exception:
+                continue
+            item["command"] = list(plan.argv)
+        rendered.append(item)
+    return rendered
 
 
 def _xdg_records(sdk_xdgapps) -> list:
@@ -121,7 +129,7 @@ def write_config(root: str, *, kilix_cmd: str, terminal: str) -> str:
         sdk_xdgapps = None
 
     model = build_menu_model(
-        catalog=_catalog_records(sdk_content),
+        catalog=_catalog_records(sdk_content, kilix_cmd),
         xdg_apps=_xdg_records(sdk_xdgapps),
         kilix_cmd=kilix_cmd,
     )

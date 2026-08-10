@@ -35,6 +35,11 @@ second copy of the hardest code in the stack would only drift from the first.
 
 ## Lazily installed
 
+Catalog applications use the host SDK's presentation plans. Terminal-native
+apps such as PDF Conversion launch through `kilix app window`, which gives them
+an `xterm` PTY managed as an ordinary IceWM window; native X applications run
+directly on IceWM's private display. Games continue through `kilix games play`.
+
 A normal clone does not fetch IceWM. The submodule is declared but left
 uninitialised, so nobody pays ~57 MB and a C++ build unless they choose this
 desktop. The first `kilix icewm` runs `scripts/build-icewm.sh`, which fetches
@@ -67,7 +72,7 @@ being allowed to terminate its label and become IceWM command words.
 ## Testing
 
 ```sh
-make test        # 36 tests, no X display and no built IceWM required
+make test        # 37 tests, no X display and no built IceWM required
 make lint        # shellcheck, when available
 ```
 
