@@ -49,16 +49,22 @@ pinned_commit() {
 }
 
 ensure_source() {
-  local want; want="$(pinned_commit)"
+  local want have
+  want="$(pinned_commit)"
   [ -n "$want" ] || die "no pinned IceWM commit recorded for $SUBMODULE_PATH"
-  if [ ! -e "$HERE/$SUBMODULE_PATH/CMakeLists.txt" ]; then
-    log "fetching pinned IceWM source (first use of this desktop)"
-    git -C "$HERE" submodule update --init --recursive -- "$SUBMODULE_PATH" \
-      || die "could not fetch the IceWM submodule"
-  fi
-  local have
   have="$(git -C "$HERE/$SUBMODULE_PATH" rev-parse HEAD 2>/dev/null || true)"
-  [ "$have" = "$want" ] || log "warning: IceWM checkout $have is not the pinned $want"
+  if [ ! -e "$HERE/$SUBMODULE_PATH/CMakeLists.txt" ] || [ "$have" != "$want" ]; then
+    log "reconciling IceWM source to pinned commit $want"
+    git -C "$HERE" submodule update --init --recursive --checkout -- \
+      "$SUBMODULE_PATH" || die "could not select the pinned IceWM submodule"
+  fi
+  have="$(git -C "$HERE/$SUBMODULE_PATH" rev-parse HEAD 2>/dev/null || true)"
+  [ "$have" = "$want" ] \
+    || die "IceWM checkout $have does not match pinned commit $want"
+  if [ -n "$(git -C "$HERE/$SUBMODULE_PATH" status --porcelain \
+                --untracked-files=normal 2>/dev/null)" ]; then
+    die "refusing modified IceWM source at $HERE/$SUBMODULE_PATH"
+  fi
   printf '%s' "$want"
 }
 
