@@ -36,9 +36,11 @@ second copy of the hardest code in the stack would only drift from the first.
 ## Lazily installed
 
 Catalog applications use the host SDK's presentation plans. Terminal-native
-apps such as PDF Conversion launch through `kilix app window`, which gives them
-an `xterm` PTY managed as an ordinary IceWM window; native X applications run
-directly on IceWM's private display. Games continue through `kilix games play`.
+apps such as File Manager, System Center, Settings Center, Software Center,
+Voice Studio, and PDF Conversion launch through `kilix app window`, which gives
+them an `xterm` PTY managed as an ordinary IceWM window; native X applications
+run directly on IceWM's private display. Newly cataloged applications appear
+without an IceWM change. Games continue through `kilix games play`.
 
 A normal clone does not fetch IceWM. The submodule is declared but left
 uninitialised, so nobody pays ~57 MB and a C++ build unless they choose this
@@ -89,11 +91,6 @@ Honest list, because none of these are visible from the outside:
   exercised; starting the private display and presenting IceWM into a Kilix
   pane is written against the SDK's documented surface but has not yet been run
   end to end. `bin/kilix-icewm --check` verifies everything short of that.
-- **Kilix 95 still hardcodes its catalog IDs; this desktop does not.**
-  `Catalog` is iterable and every `ContentSpec` carries `label`, `kind` and
-  `icon`, so this menu enumerates and needs no per-provider ID table. Kilix
-  95's `games.py` predates that and names each ID by hand, which is why the
-  two desktops can disagree about newly added content.
 - **No `provider.json`.** Kilix's `check-desktop-provider.py` validates against
   Kilix 95's Python file layout (`taskbar.py`, `widgets.py`, and named markers
   inside them). Like Kilix Cap, Kilix TUI and Kilix Land, this is a native
