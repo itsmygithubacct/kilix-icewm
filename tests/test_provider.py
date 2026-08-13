@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -21,6 +22,67 @@ SPEC.loader.exec_module(PROVIDER)
 
 
 class TestPresentationLoop(unittest.TestCase):
+    def test_games_launch_inside_a_real_kilix_terminal_window(self):
+        sdk = SimpleNamespace(menu_records=lambda: [{
+            "id": "kilix-pong",
+            "label": "Kilix Pong",
+            "kind": "game",
+            "icon": "pong",
+            "launch_mode": "terminal",
+            "capabilities": ["kitty-graphics", "kitty-keyboard"],
+        }])
+
+        records = PROVIDER._catalog_records(sdk, "/host/kilix")
+
+        self.assertEqual(records[0]["command"], [
+            "/host/kilix", "--title", "Kilix Pong",
+            "/host/kilix", "games", "play", "kilix-pong",
+        ])
+
+    def test_kitty_native_apps_get_kilix_instead_of_xterm(self):
+        calls = []
+
+        def application_plan(content_id, surface, launcher):
+            calls.append((content_id, surface, launcher))
+            action = "run" if surface == "current" else "window"
+            return SimpleNamespace(argv=(launcher, "app", action, content_id))
+
+        sdk = SimpleNamespace(
+            menu_records=lambda: [
+                {
+                    "id": "kilix-pdf",
+                    "label": "PDF Viewer",
+                    "kind": "app",
+                    "icon": "pdf",
+                    "launch_mode": "terminal",
+                    "capabilities": ["filesystem-read", "kitty-graphics"],
+                },
+                {
+                    "id": "kilix-calculator",
+                    "label": "Calculator",
+                    "kind": "app",
+                    "icon": "calculator",
+                    "launch_mode": "terminal",
+                    "capabilities": [],
+                },
+            ],
+            application_plan=application_plan,
+        )
+
+        records = PROVIDER._catalog_records(sdk, "/host/kilix")
+
+        self.assertEqual(calls, [
+            ("kilix-pdf", "current", "/host/kilix"),
+            ("kilix-calculator", "window", "/host/kilix"),
+        ])
+        self.assertEqual(records[0]["command"], [
+            "/host/kilix", "--title", "PDF Viewer",
+            "/host/kilix", "app", "run", "kilix-pdf",
+        ])
+        self.assertEqual(records[1]["command"], [
+            "/host/kilix", "app", "window", "kilix-calculator",
+        ])
+
     def test_preferences_enable_a_scaled_static_wallpaper(self):
         rendered = PROVIDER._render_preferences("/prefix/share/a wallpaper.jpg")
 

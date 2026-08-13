@@ -129,6 +129,16 @@ class TestRender(unittest.TestCase):
         self.assertIn('prog "Terminal"', out)
         self.assertIn('prog "Log Out"', out)
 
+    def test_fixed_tui_rows_launch_inside_the_terminal(self):
+        out = render_menu(
+            build_menu_model(), kilix_cmd="/host/kilix", terminal="/terminal")
+        self.assertIn(
+            'prog "Kilix Settings" - /host/kilix --title "Kilix Settings" '
+            '/host/kilix settings', out)
+        self.assertIn(
+            'prog "Kilix Launcher" - /host/kilix --title "Kilix Launcher" '
+            '/host/kilix launcher', out)
+
     def test_empty_sections_are_omitted_not_left_blank(self):
         out = render_menu(build_menu_model())
         self.assertNotIn('menu "Games"', out)
@@ -143,6 +153,13 @@ class TestRender(unittest.TestCase):
     def test_toolbar_always_offers_a_way_back_to_a_shell(self):
         out = render_toolbar(build_menu_model())
         self.assertIn('prog "Terminal"', out)
+
+    def test_toolbar_settings_launches_inside_the_terminal(self):
+        out = render_toolbar(
+            build_menu_model(), kilix_cmd="/host/kilix", terminal="/terminal")
+        self.assertIn(
+            'prog "Settings" - /host/kilix --title "Kilix Settings" '
+            '/host/kilix settings', out)
 
     def test_toolbar_respects_limit(self):
         cat = [{"id": f"a{i}", "name": f"App {i}", "kind": "app", "installed": True}

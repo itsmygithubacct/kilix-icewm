@@ -95,13 +95,42 @@ def _catalog_records(sdk_content, kilix_cmd: str) -> list:
             # the host decides whether that means "start" or "fetch first".
             "installed": True,
         }
-        if rec["kind"] == "app":
+        if rec["kind"] == "game":
+            # Catalog games are terminal programs, but most of them draw with
+            # Kitty graphics and use the Kitty keyboard protocol. IceWM itself
+            # has neither a PTY nor a terminal surface, so executing the host
+            # verb directly makes the game fail before a window can appear.
+            # Start a real Kilix terminal as an ordinary IceWM client, then run
+            # the shared install-and-play verb inside that terminal.
+            item["command"] = [
+                kilix_cmd,
+                "--title",
+                rec["label"],
+                kilix_cmd,
+                "games",
+                "play",
+                rec["id"],
+            ]
+        elif rec["kind"] == "app":
             try:
+                needs_kilix_terminal = (
+                    rec.get("launch_mode") == "terminal"
+                    and any(
+                        str(capability).startswith("kitty-")
+                        for capability in rec.get("capabilities", ())
+                    )
+                )
                 plan = sdk_content.application_plan(
-                    rec["id"], "window", launcher=kilix_cmd)
+                    rec["id"],
+                    "current" if needs_kilix_terminal else "window",
+                    launcher=kilix_cmd,
+                )
             except Exception:
                 continue
-            item["command"] = list(plan.argv)
+            command = list(plan.argv)
+            if needs_kilix_terminal:
+                command = [kilix_cmd, "--title", rec["label"], *command]
+            item["command"] = command
         rendered.append(item)
     return rendered
 

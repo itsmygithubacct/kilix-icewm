@@ -40,8 +40,13 @@ Catalog applications use the host SDK's presentation plans. Terminal-native
 apps such as File Manager, System Center, Settings Center, Software Center,
 Voice Studio, and PDF Conversion launch through `kilix app window`, which gives
 them an `xterm` PTY managed as an ordinary IceWM window; native X applications
-run directly on IceWM's private display. Newly cataloged applications appear
-without an IceWM change. Games continue through `kilix games play`.
+run directly on IceWM's private display. Apps that declare Kitty graphics or
+input capabilities instead open in a real Kilix terminal managed as an ordinary
+IceWM window. Newly cataloged applications appear without an IceWM change.
+Games use that same Kitty window and continue through `kilix games play`, so
+their shared install-and-play contract receives the terminal protocols it
+declares. The fixed Settings and Launcher rows use Kilix windows for the same
+reason: both are interactive terminal interfaces, not background commands.
 
 A normal clone does not fetch IceWM. The submodule is declared but left
 uninitialised, so nobody pays ~57 MB and a C++ build unless they choose this
@@ -75,7 +80,7 @@ being allowed to terminate its label and become IceWM command words.
 ## Testing
 
 ```sh
-make test        # 51 tests, no X display and no built IceWM required
+make test        # 55 tests, no X display and no built IceWM required
 make lint        # shellcheck, when available
 ```
 
