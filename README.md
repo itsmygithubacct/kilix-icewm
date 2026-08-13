@@ -30,8 +30,9 @@ The pieces that are genuinely ours:
 
 The private display, damage-tracked capture, RandR refit on pane resize, and
 XTest injection of the kitty keyboard/mouse protocols are **not** reimplemented
-here. They already exist in `kilix_sdk.xapp` and Kilix's app runner, and a
-second copy of the hardest code in the stack would only drift from the first.
+here. The provider delegates its configured `icewm-session` to `kilix run`
+inside the desktop tab, so those facilities come from Kilix's single app
+runner implementation.
 
 ## Lazily installed
 
@@ -74,7 +75,7 @@ being allowed to terminate its label and become IceWM command words.
 ## Testing
 
 ```sh
-make test        # 40 tests, no X display and no built IceWM required
+make test        # 51 tests, no X display and no built IceWM required
 make lint        # shellcheck, when available
 ```
 
@@ -84,13 +85,6 @@ they are the parts split out into `src/`.
 
 ## Known rough edges
 
-Honest list, because none of these are visible from the outside:
-
-- **The presentation loop has not been smoke-tested against a live pane.** Menu
-  generation, config writing, process supervision, and the build script are
-  exercised; starting the private display and presenting IceWM into a Kilix
-  pane is written against the SDK's documented surface but has not yet been run
-  end to end. `bin/kilix-icewm --check` verifies everything short of that.
 - **No `provider.json`.** Kilix's `check-desktop-provider.py` validates against
   Kilix 95's Python file layout (`taskbar.py`, `widgets.py`, and named markers
   inside them). Like Kilix Cap, Kilix TUI and Kilix Land, this is a native

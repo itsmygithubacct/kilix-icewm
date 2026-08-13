@@ -56,7 +56,8 @@ ensure_source() {
   if [ ! -e "$HERE/$SUBMODULE_PATH/CMakeLists.txt" ] || [ "$have" != "$want" ]; then
     log "reconciling IceWM source to pinned commit $want"
     git -C "$HERE" submodule update --init --recursive --checkout -- \
-      "$SUBMODULE_PATH" || die "could not select the pinned IceWM submodule"
+      "$SUBMODULE_PATH" >&2 \
+      || die "could not select the pinned IceWM submodule"
   fi
   have="$(git -C "$HERE/$SUBMODULE_PATH" rev-parse HEAD 2>/dev/null || true)"
   [ "$have" = "$want" ] \
@@ -74,15 +75,27 @@ check_build_deps() {
   command -v pkg-config >/dev/null 2>&1 || missing+=(pkg-config)
   { command -v c++ >/dev/null 2>&1 || command -v g++ >/dev/null 2>&1; } \
     || missing+=("a C++ compiler")
-  # The X11 development packages are the ones people actually lack, and cmake
-  # reports their absence as a link failure in a scratch directory -- naming
-  # them here turns an unreadable build log into one apt-get line.
-  local libs=(x11 xext xrandr xft fontconfig)
+  # Check every pkg-config module that this IceWM configuration requires.
+  # Otherwise CMake reveals them one at a time, forcing a build retry for each
+  # missing development package.
+  local libs=(
+    x11 xext xrandr xft fontconfig xrender xcomposite xcursor xdamage xfixes
+    imlib2
+  )
+  local debian_packages=(
+    libx11-dev libxext-dev libxrandr-dev libxft-dev libfontconfig-dev
+    libxrender-dev libxcomposite-dev libxcursor-dev libxdamage-dev
+    libxfixes-dev libimlib2-dev
+  )
   local lacking=()
+  local apt_lacking=()
   if command -v pkg-config >/dev/null 2>&1; then
-    local lib
-    for lib in "${libs[@]}"; do
-      pkg-config --exists "$lib" 2>/dev/null || lacking+=("$lib")
+    local i
+    for i in "${!libs[@]}"; do
+      if ! pkg-config --exists "${libs[$i]}" 2>/dev/null; then
+        lacking+=("${libs[$i]}")
+        apt_lacking+=("${debian_packages[$i]}")
+      fi
     done
   fi
   if [ "${#missing[@]}" -gt 0 ] || [ "${#lacking[@]}" -gt 0 ]; then
@@ -90,9 +103,8 @@ check_build_deps() {
     [ "${#missing[@]}" -gt 0 ] && msg+="
   missing tools:      ${missing[*]}"
     [ "${#lacking[@]}" -gt 0 ] && msg+="
-  missing X11 devel:  ${lacking[*]}
-  on Debian/Ubuntu:   sudo apt-get install libx11-dev libxext-dev \\
-                        libxrandr-dev libxft-dev libfontconfig-dev"
+  missing dev modules: ${lacking[*]}
+  on Debian/Ubuntu:    sudo apt-get install ${apt_lacking[*]}"
     msg+="
 
 Alternatively use a packaged IceWM and skip the build entirely:
@@ -101,11 +113,34 @@ Alternatively use a packaged IceWM and skip the build entirely:
   fi
 }
 
+check_cmake_cache_source() {
+  local cache="$BUILD_DIR/CMakeCache.txt"
+  [ -f "$cache" ] || return 0
+
+  local expected="$HERE/$SUBMODULE_PATH"
+  local cached
+  cached="$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' "$cache" | tail -n 1)"
+  if [ -z "$cached" ] || [ "$cached" = "$expected" ]; then
+    return 0
+  fi
+
+  local escaped_build_dir
+  printf -v escaped_build_dir '%q' "$BUILD_DIR"
+  die "stale CMake build cache refers to a different IceWM checkout.
+  cached source:  $cached
+  current source: $expected
+
+Clear the generated build directory and retry:
+  rm -rf -- $escaped_build_dir
+  kilix icewm"
+}
+
 build() {
   local commit; commit="$(ensure_source)"
   check_build_deps
   log "building IceWM $commit -> $PREFIX"
   mkdir -p "$BUILD_DIR" "$PREFIX"
+  check_cmake_cache_source
   # -DCONFIG_* off keeps the dependency surface to core X11: this desktop is
   # presented through a captured private display, so sound servers, tray icons
   # for a real panel, and session-manager integration have nothing to talk to.
