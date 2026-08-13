@@ -214,6 +214,12 @@ def _default_wallpaper(prefix: str) -> str | None:
     return next((path for path in candidates if os.path.isfile(path)), None)
 
 
+def _icewm_prefix(storage: str) -> str:
+    """Resolve the build prefix, treating an exported empty value as unset."""
+    return os.environ.get("KILIX_ICEWM_PREFIX") or os.path.join(
+        storage, "prefix")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="kilix-icewm", add_help=True)
     parser.add_argument("--version", action="store_true",
@@ -249,7 +255,7 @@ def main(argv=None) -> int:
     kilix_cmd = os.environ.get("KILIX_COMMAND", "kilix")
     terminal = os.environ.get("KILIX_TERMINAL", kilix_cmd)
     config_root = os.path.join(storage, "config", "icewm")
-    prefix = os.environ.get("KILIX_ICEWM_PREFIX", os.path.join(storage, "prefix"))
+    prefix = _icewm_prefix(storage)
     wallpaper = _default_wallpaper(prefix)
 
     if args.print_config:

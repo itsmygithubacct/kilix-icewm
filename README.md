@@ -80,7 +80,7 @@ being allowed to terminate its label and become IceWM command words.
 ## Testing
 
 ```sh
-make test        # 55 tests, no X display and no built IceWM required
+make test        # 57 tests, no X display and no built IceWM required
 make lint        # shellcheck, when available
 ```
 

@@ -104,6 +104,24 @@ class TestPresentationLoop(unittest.TestCase):
 
             self.assertEqual(PROVIDER._default_wallpaper(tmp), str(large))
 
+    def test_empty_exported_prefix_uses_the_storage_prefix(self):
+        with mock.patch.dict(
+                os.environ, {"KILIX_ICEWM_PREFIX": ""}, clear=True):
+            self.assertEqual(
+                PROVIDER._icewm_prefix("/storage"),
+                "/storage/prefix",
+            )
+
+    def test_explicit_prefix_is_preserved(self):
+        with mock.patch.dict(
+                os.environ,
+                {"KILIX_ICEWM_PREFIX": "/custom/icewm"},
+                clear=True):
+            self.assertEqual(
+                PROVIDER._icewm_prefix("/storage"),
+                "/custom/icewm",
+            )
+
     def test_delegates_to_host_runner_in_current_desktop_tab(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
                 os.environ, {"PATH": "/usr/bin", "SENTINEL": "kept"},
