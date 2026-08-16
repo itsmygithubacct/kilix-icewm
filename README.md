@@ -72,6 +72,11 @@ Only the four generated filenames are writable through that path. The
 directory is one IceWM executes startup hooks from, so accepting an arbitrary
 filename there would be an arbitrary-file-write into an executable location.
 
+The generated preferences make the Windows/Super key the start button:
+`Win95Keys=1` opens IceWM's root menu on a bare left Super press (the right
+one opens the window list), and `ModSuperIsCtrlAlt=0` keeps Super a dedicated
+key instead of an alias for Ctrl+Alt combinations.
+
 Menu labels come from catalog records, so they are escaped rather than
 interpolated: a name containing a quote or a newline is neutralised instead of
 being allowed to terminate its label and become IceWM command words.
@@ -80,7 +85,7 @@ being allowed to terminate its label and become IceWM command words.
 ## Testing
 
 ```sh
-make test        # 57 tests, no X display and no built IceWM required
+make test        # 59 tests, no X display and no built IceWM required
 make lint        # shellcheck, when available
 ```
 

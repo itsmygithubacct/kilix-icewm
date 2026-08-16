@@ -184,6 +184,12 @@ TaskBarShowClock=1
 TaskBarShowAllWindows=1
 ShowMoveSizeStatus=0
 QuickSwitch=1
+# The Windows/Super key is the start button: a bare left Super press opens
+# the root menu and the right one opens the window list. Stated explicitly so
+# the binding does not depend on the compiled-in default, and Super stays a
+# dedicated key instead of doubling as a Ctrl+Alt alias.
+Win95Keys=1
+ModSuperIsCtrlAlt=0
 DesktopBackgroundColor="rgb:20/20/28"
 UseRootPixmap=0
 Animations=0
