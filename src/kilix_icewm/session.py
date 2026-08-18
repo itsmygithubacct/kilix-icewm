@@ -18,6 +18,7 @@ import os
 import shutil
 import signal
 import subprocess
+import tempfile
 import time
 
 __all__ = ["IceWMConfig", "IceWMProcess", "resolve_icewm"]
@@ -72,11 +73,25 @@ class IceWMConfig:
             if name not in CONFIG_FILES:
                 raise ValueError(f"refusing to write unknown icewm config: {name!r}")
             path = os.path.join(self.root, name)
-            tmp = path + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as fh:
-                fh.write(text)
-            os.chmod(tmp, 0o600)
-            os.replace(tmp, path)          # atomic: never a half-read menu
+            fd, tmp = tempfile.mkstemp(
+                prefix=f".{name}.", suffix=".tmp", dir=self.root, text=True
+            )
+            try:
+                os.fchmod(fd, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    fd = -1
+                    fh.write(text)
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                os.replace(tmp, path)      # atomic: never a half-read menu
+            except BaseException:
+                if fd >= 0:
+                    os.close(fd)
+                try:
+                    os.unlink(tmp)
+                except FileNotFoundError:
+                    pass
+                raise
             written.append(path)
         return self.root
 
