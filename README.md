@@ -25,6 +25,7 @@ The pieces that are genuinely ours:
 | --- | --- |
 | `src/kilix_icewm/menu.py` | Generates IceWM's `menu` and `toolbar` from the Kilix content catalog and discovered XDG applications |
 | `src/kilix_icewm/session.py` | Writes IceWM a private config directory and supervises the IceWM process |
+| `src/kilix_icewm/install.py` | Records what an install created, and removes exactly that |
 | `bin/kilix-icewm` | The provider entry point Kilix launches |
 | `scripts/build-icewm.sh` | Fetches and builds the pinned IceWM on first use |
 
@@ -61,6 +62,32 @@ To use a distribution IceWM instead of building one:
 export KILIX_ICEWM_PREFIX=/usr    # must contain bin/icewm-session
 ```
 
+## Removing it again
+
+```sh
+make uninstall        # or: ./bin/kilix-icewm --uninstall
+```
+
+Every path a build creates is recorded in
+`~/.local/gpu_terminal/kilix-icewm/install-manifest`, and every configuration
+file a launch generates in `config-manifest` beside it. Both record digests
+and paths relative to that storage home, and the uninstall removes exactly
+what they list:
+
+- a file you edited or replaced is kept, named on stderr, and the command
+  exits non-zero, because the provider is then not fully removed;
+- a file you added is left alone, and the directories holding it stay with it:
+  only directories the install created are pruned, and only while empty;
+- if any component of a recorded path has become a symlink, that path is
+  refused rather than followed out of the storage home;
+- an incomplete removal keeps its manifest, so resolving the difference and
+  running the same command again finishes the job.
+
+A prefix pointed outside the storage home -- a distribution IceWM, a shared
+tree -- is never recorded and never removed. Neither is the source checkout
+under `~/.local/gpu_terminal/sources`: the Kilix installer put it there and
+owns removing it.
+
 ## Configuration is private and regenerated
 
 IceWM is pointed at `~/.local/gpu_terminal/kilix-icewm/config/icewm` through
@@ -85,7 +112,7 @@ being allowed to terminate its label and become IceWM command words.
 ## Testing
 
 ```sh
-make test        # 62 tests, no X display and no built IceWM required
+make test        # 84 tests, no X display and no built IceWM required
 make lint        # shellcheck, when available
 ```
 

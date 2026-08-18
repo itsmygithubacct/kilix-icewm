@@ -21,6 +21,8 @@ import subprocess
 import tempfile
 import time
 
+from kilix_icewm import install
+
 __all__ = ["IceWMConfig", "IceWMProcess", "resolve_icewm"]
 
 # IceWM's own default; overridden per-launch so a crashed session cannot leave
@@ -56,8 +58,12 @@ def resolve_icewm(prefix: str | None = None, env=None):
 class IceWMConfig:
     """A private IceWM configuration directory written fresh each launch."""
 
-    def __init__(self, root: str):
+    def __init__(self, root: str, manifest: str | None = None):
         self.root = root
+        # Where to record what this directory owns, so an uninstall removes
+        # generated configuration without guessing at filenames. Optional:
+        # callers that only want ``env_for`` need no ownership record.
+        self.manifest = manifest
 
     def write(self, files: dict) -> str:
         """Write ``{name: text}`` into the private config dir, 0700/0600.
@@ -66,6 +72,12 @@ class IceWMConfig:
         generated content, and a stray key would let a caller drop an arbitrary
         file into a directory IceWM executes hooks from.
         """
+        created = []
+        if self.manifest:
+            # Asked before the directories exist, which is the only moment the
+            # answer is "the ones this launch is about to create".
+            created = install.missing_directories(
+                self.root, os.path.dirname(self.manifest))
         os.makedirs(self.root, mode=0o700, exist_ok=True)
         os.chmod(self.root, 0o700)
         written = []
@@ -93,6 +105,8 @@ class IceWMConfig:
                     pass
                 raise
             written.append(path)
+        if self.manifest:
+            install.record_files(self.manifest, written, created)
         return self.root
 
     def env_for(self, base=None) -> dict:
