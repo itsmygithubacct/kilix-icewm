@@ -29,6 +29,16 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(_HERE), "src"))
 
+# Metadata and health checks must not initialize storage, generate an IceWM
+# configuration or import the host SDK. Launch is translated onto the existing
+# foreground session path so its established process cleanup remains intact.
+if __name__ == "__main__":
+    from kilix_icewm import provider_protocol as _provider_protocol
+    _provider_argv = _provider_protocol.dispatch(sys.argv[1:])
+    if _provider_argv is not None:
+        sys.argv[1:] = _provider_argv
+    del _provider_argv, _provider_protocol
+
 from kilix_icewm.menu import (  # noqa: E402
     build_menu_model,
     escape_label,
