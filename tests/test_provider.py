@@ -83,6 +83,28 @@ class TestPresentationLoop(unittest.TestCase):
             "/host/kilix", "app", "window", "kilix-calculator",
         ])
 
+    def test_super_key_opens_the_start_menu(self):
+        # Win95Keys makes a bare left Super press pop up the root menu; keeping
+        # ModSuperIsCtrlAlt off stops the same key from doubling as a Ctrl+Alt
+        # alias. Both are asserted as whole lines so a rename or a value change
+        # in the template cannot pass unnoticed.
+        for rendered in (
+            PROVIDER._render_preferences(None),
+            PROVIDER._render_preferences("/prefix/share/wallpaper.jpg"),
+        ):
+            lines = rendered.splitlines()
+            self.assertIn("Win95Keys=1", lines)
+            self.assertIn("ModSuperIsCtrlAlt=0", lines)
+
+    def test_generated_config_binds_the_super_key(self):
+        # The full generation path, not just the template: a provider install
+        # must land the binding in the preferences file IceWM actually reads.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "icewm")
+            PROVIDER.write_config(root, kilix_cmd="kilix", terminal="kilix")
+            text = (Path(root) / "preferences").read_text(encoding="utf-8")
+        self.assertIn("Win95Keys=1", text.splitlines())
+
     def test_preferences_enable_a_scaled_static_wallpaper(self):
         rendered = PROVIDER._render_preferences("/prefix/share/a wallpaper.jpg")
 

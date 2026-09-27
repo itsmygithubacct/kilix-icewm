@@ -3,7 +3,9 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -46,6 +48,55 @@ class TestConfig(unittest.TestCase):
         self.cfg.write({"menu": "second\n"})
         with open(os.path.join(self.cfg.root, "menu")) as fh:
             self.assertEqual(fh.read(), "second\n")
+        self.assertEqual(
+            [n for n in os.listdir(self.cfg.root) if n.endswith(".tmp")], [])
+
+    def test_predictable_temp_symlink_is_never_followed(self):
+        os.makedirs(self.cfg.root, mode=0o700)
+        target = os.path.join(self.tmp.name, "outside")
+        with open(target, "w") as fh:
+            fh.write("sentinel\n")
+        os.symlink(target, os.path.join(self.cfg.root, "menu.tmp"))
+        self.cfg.write({"menu": "safe\n"})
+        with open(target) as fh:
+            self.assertEqual(fh.read(), "sentinel\n")
+        with open(os.path.join(self.cfg.root, "menu")) as fh:
+            self.assertEqual(fh.read(), "safe\n")
+
+    def test_concurrent_writes_all_succeed_and_leave_one_complete_file(self):
+        # A writer that dies in its own thread does not fail the test on its
+        # own: the interpreter prints the traceback and the thread simply
+        # ends. The failure this guards against is exactly that -- one writer
+        # deleting another's temporary file -- so every worker's exception is
+        # carried back here and asserted on.
+        barrier = threading.Barrier(8)
+        values = [f"value-{index}-" + ("x" * 4096) for index in range(8)]
+        failures = []
+        lock = threading.Lock()
+
+        def write(value):
+            barrier.wait()
+            try:
+                self.cfg.write({"menu": value})
+            except BaseException as exc:
+                with lock:
+                    failures.append(f"{type(exc).__name__}: {exc}")
+
+        threads = [threading.Thread(target=write, args=(value,)) for value in values]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(failures, [])
+        with open(os.path.join(self.cfg.root, "menu")) as fh:
+            self.assertIn(fh.read(), values)
+        self.assertEqual(
+            [n for n in os.listdir(self.cfg.root) if n.endswith(".tmp")], [])
+
+    def test_failed_replace_cleans_private_temp(self):
+        with mock.patch("kilix_icewm.session.os.replace", side_effect=OSError):
+            with self.assertRaises(OSError):
+                self.cfg.write({"menu": "content\n"})
         self.assertEqual(
             [n for n in os.listdir(self.cfg.root) if n.endswith(".tmp")], [])
 

@@ -29,12 +29,23 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(_HERE), "src"))
 
+# Metadata and health checks must not initialize storage, generate an IceWM
+# configuration or import the host SDK. Launch is translated onto the existing
+# foreground session path so its established process cleanup remains intact.
+if __name__ == "__main__":
+    from kilix_icewm import provider_protocol as _provider_protocol
+    _provider_argv = _provider_protocol.dispatch(sys.argv[1:])
+    if _provider_argv is not None:
+        sys.argv[1:] = _provider_argv
+    del _provider_argv, _provider_protocol
+
 from kilix_icewm.menu import (  # noqa: E402
     build_menu_model,
     escape_label,
     render_menu,
     render_toolbar,
 )
+from kilix_icewm import install  # noqa: E402
 from kilix_icewm.session import (  # noqa: E402
     IceWMConfig,
     resolve_icewm,
@@ -149,7 +160,8 @@ def _xdg_records(sdk_xdgapps) -> list:
 
 
 def write_config(root: str, *, kilix_cmd: str, terminal: str,
-                 wallpaper: str | None = None) -> str:
+                 wallpaper: str | None = None,
+                 manifest: str | None = None) -> str:
     """Generate IceWM's private configuration for this launch."""
     try:
         from kilix_sdk import content as sdk_content
@@ -165,7 +177,7 @@ def write_config(root: str, *, kilix_cmd: str, terminal: str,
         xdg_apps=_xdg_records(sdk_xdgapps),
         kilix_cmd=kilix_cmd,
     )
-    cfg = IceWMConfig(root)
+    cfg = IceWMConfig(root, manifest=manifest)
     cfg.write({
         "menu": render_menu(model, kilix_cmd=kilix_cmd, terminal=terminal),
         "toolbar": render_toolbar(model, kilix_cmd=kilix_cmd, terminal=terminal),
@@ -184,6 +196,12 @@ TaskBarShowClock=1
 TaskBarShowAllWindows=1
 ShowMoveSizeStatus=0
 QuickSwitch=1
+# The Windows/Super key is the start button: a bare left Super press opens
+# the root menu and the right one opens the window list. Stated explicitly so
+# the binding does not depend on the compiled-in default, and Super stays a
+# dedicated key instead of doubling as a Ctrl+Alt alias.
+Win95Keys=1
+ModSuperIsCtrlAlt=0
 DesktopBackgroundColor="rgb:20/20/28"
 UseRootPixmap=0
 Animations=0
@@ -220,6 +238,58 @@ def _icewm_prefix(storage: str) -> str:
         storage, "prefix")
 
 
+def _storage_home() -> str:
+    """The one directory every per-user path this provider creates lives in."""
+    return os.environ.get(
+        "KILIX_ICEWM_STORAGE_HOME",
+        os.path.expanduser("~/.local/gpu_terminal/kilix-icewm"))
+
+
+def uninstall(storage: str) -> int:
+    """Remove what this provider recorded installing, and nothing else.
+
+    Two manifests are consulted: the one the build writes for the IceWM prefix
+    and its build tree, and the one config generation writes for the private
+    IceWM configuration. Each removal is bounded by its manifest, so a path
+    the operator added or edited is reported and left where it is -- and this
+    command then exits non-zero, because the provider is not fully removed.
+
+    The source checkout under ``~/.local/gpu_terminal/sources`` is not touched:
+    the Kilix installer put it there and owns removing it.
+    """
+    seen = False
+    status = 0
+    for name in (install.INSTALL_MANIFEST, install.CONFIG_MANIFEST):
+        manifest = os.path.join(storage, name)
+        if not os.path.lexists(manifest):
+            continue
+        seen = True
+        try:
+            report = install.remove(manifest)
+        except install.ManifestError as exc:
+            status = _fail(str(exc))
+            continue
+        print(f"kilix-icewm: removed {len(report.removed)} files and "
+              f"{len(report.pruned)} directories recorded by {manifest}")
+        for rel in report.preserved:
+            print(f"  kept, not ours any more: {rel}", file=sys.stderr)
+        for rel in report.refused:
+            print(f"  refused, symlinked path component: {rel}", file=sys.stderr)
+        for rel in report.kept:
+            print(f"  kept, directory not empty: {rel}", file=sys.stderr)
+        if not report.complete:
+            status = 1
+    if not seen:
+        print(f"kilix-icewm: nothing recorded as installed under {storage}")
+        return 0
+    if status == 0:
+        try:
+            os.rmdir(storage)
+        except OSError:
+            pass
+    return status
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="kilix-icewm", add_help=True)
     parser.add_argument("--version", action="store_true",
@@ -229,6 +299,10 @@ def main(argv=None) -> int:
                              "binary without starting a display")
     parser.add_argument("--print-config", action="store_true",
                         help="write the generated IceWM config and print its path")
+    parser.add_argument("--uninstall", action="store_true",
+                        help="remove the built IceWM prefix, its build tree "
+                             "and the generated configuration, using only the "
+                             "manifests the install recorded")
     args = parser.parse_args(argv)
 
     version_file = os.path.join(os.path.dirname(_HERE), "VERSION")
@@ -240,6 +314,11 @@ def main(argv=None) -> int:
         print(version)
         return 0
 
+    # Removing this provider must work after the host it plugs into is gone,
+    # so uninstall answers before the SDK is looked for.
+    if args.uninstall:
+        return uninstall(_storage_home())
+
     _add_sdk_path()
     try:
         from kilix_sdk import require_compatible
@@ -249,19 +328,18 @@ def main(argv=None) -> int:
     except Exception as exc:
         return _fail(f"incompatible Kilix SDK: {exc}")
 
-    storage = os.environ.get(
-        "KILIX_ICEWM_STORAGE_HOME",
-        os.path.expanduser("~/.local/gpu_terminal/kilix-icewm"))
+    storage = _storage_home()
     kilix_cmd = os.environ.get("KILIX_COMMAND", "kilix")
     terminal = os.environ.get("KILIX_TERMINAL", kilix_cmd)
     config_root = os.path.join(storage, "config", "icewm")
+    manifest = os.path.join(storage, install.CONFIG_MANIFEST)
     prefix = _icewm_prefix(storage)
     wallpaper = _default_wallpaper(prefix)
 
     if args.print_config:
         print(write_config(
             config_root, kilix_cmd=kilix_cmd, terminal=terminal,
-            wallpaper=wallpaper))
+            wallpaper=wallpaper, manifest=manifest))
         return 0
 
     session_bin, wm_bin = resolve_icewm(prefix)
@@ -270,7 +348,7 @@ def main(argv=None) -> int:
     if args.check:
         write_config(
             config_root, kilix_cmd=kilix_cmd, terminal=terminal,
-            wallpaper=wallpaper)
+            wallpaper=wallpaper, manifest=manifest)
         print(f"kilix-icewm {version}")
         print(f"  config:  {config_root}")
         print(f"  icewm:   {binary or 'NOT BUILT (run scripts/build-icewm.sh)'}")
@@ -282,7 +360,7 @@ def main(argv=None) -> int:
 
     write_config(
         config_root, kilix_cmd=kilix_cmd, terminal=terminal,
-        wallpaper=wallpaper)
+        wallpaper=wallpaper, manifest=manifest)
     return _run_desktop(binary, config_root)
 
 

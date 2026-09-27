@@ -18,7 +18,10 @@ import os
 import shutil
 import signal
 import subprocess
+import tempfile
 import time
+
+from kilix_icewm import install
 
 __all__ = ["IceWMConfig", "IceWMProcess", "resolve_icewm"]
 
@@ -55,8 +58,12 @@ def resolve_icewm(prefix: str | None = None, env=None):
 class IceWMConfig:
     """A private IceWM configuration directory written fresh each launch."""
 
-    def __init__(self, root: str):
+    def __init__(self, root: str, manifest: str | None = None):
         self.root = root
+        # Where to record what this directory owns, so an uninstall removes
+        # generated configuration without guessing at filenames. Optional:
+        # callers that only want ``env_for`` need no ownership record.
+        self.manifest = manifest
 
     def write(self, files: dict) -> str:
         """Write ``{name: text}`` into the private config dir, 0700/0600.
@@ -65,6 +72,12 @@ class IceWMConfig:
         generated content, and a stray key would let a caller drop an arbitrary
         file into a directory IceWM executes hooks from.
         """
+        created = []
+        if self.manifest:
+            # Asked before the directories exist, which is the only moment the
+            # answer is "the ones this launch is about to create".
+            created = install.missing_directories(
+                self.root, os.path.dirname(self.manifest))
         os.makedirs(self.root, mode=0o700, exist_ok=True)
         os.chmod(self.root, 0o700)
         written = []
@@ -72,12 +85,28 @@ class IceWMConfig:
             if name not in CONFIG_FILES:
                 raise ValueError(f"refusing to write unknown icewm config: {name!r}")
             path = os.path.join(self.root, name)
-            tmp = path + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as fh:
-                fh.write(text)
-            os.chmod(tmp, 0o600)
-            os.replace(tmp, path)          # atomic: never a half-read menu
+            fd, tmp = tempfile.mkstemp(
+                prefix=f".{name}.", suffix=".tmp", dir=self.root, text=True
+            )
+            try:
+                os.fchmod(fd, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    fd = -1
+                    fh.write(text)
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                os.replace(tmp, path)      # atomic: never a half-read menu
+            except BaseException:
+                if fd >= 0:
+                    os.close(fd)
+                try:
+                    os.unlink(tmp)
+                except FileNotFoundError:
+                    pass
+                raise
             written.append(path)
+        if self.manifest:
+            install.record_files(self.manifest, written, created)
         return self.root
 
     def env_for(self, base=None) -> dict:

@@ -16,6 +16,14 @@ STORAGE_HOME="${KILIX_ICEWM_STORAGE_HOME:-$HOME/.local/gpu_terminal/kilix-icewm}
 PREFIX="${KILIX_ICEWM_PREFIX:-$STORAGE_HOME/prefix}"
 BUILD_DIR="$STORAGE_HOME/build"
 STAMP="$PREFIX/.built-from"
+MANIFEST="$STORAGE_HOME/install-manifest"
+RECORDER="$HERE/src/kilix_icewm/install.py"
+
+SNAPSHOT=""
+# Every exit path drops the pre-install directory listing, including the ones
+# `die` takes out of the middle of a build.
+cleanup() { [ -z "$SNAPSHOT" ] || rm -f -- "$SNAPSHOT"; }
+trap cleanup EXIT
 
 die() { printf 'kilix-icewm: %s\n' "$*" >&2; exit 1; }
 log() { printf 'kilix-icewm: %s\n' "$*" >&2; }
@@ -135,10 +143,30 @@ Clear the generated build directory and retry:
   kilix icewm"
 }
 
+# The uninstall verb removes recorded paths and nothing else, so a build only
+# claims ownership of what it creates inside this user's own storage home. A
+# prefix pointed somewhere else -- a distribution IceWM, a shared tree -- is
+# left unrecorded rather than half-claimed.
+records_ownership() {
+  case "$PREFIX/" in
+    "$STORAGE_HOME"/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 build() {
   local commit; commit="$(ensure_source)"
   check_build_deps
   log "building IceWM $commit -> $PREFIX"
+  if records_ownership; then
+    # Taken before anything is created: the difference afterwards is exactly
+    # the set of directories this build may later prune.
+    SNAPSHOT="$(mktemp)" || die "could not create an install snapshot"
+    python3 "$RECORDER" snapshot --root "$PREFIX" --root "$BUILD_DIR" \
+        --output "$SNAPSHOT" || die "could not inspect $STORAGE_HOME"
+  else
+    log "prefix is outside $STORAGE_HOME; recording no uninstall manifest"
+  fi
   mkdir -p "$BUILD_DIR" "$PREFIX"
   check_cmake_cache_source
   # -DCONFIG_* off keeps the dependency surface to core X11: this desktop is
@@ -155,6 +183,11 @@ build() {
   ( cd "$BUILD_DIR" && make install >/dev/null ) || die "IceWM install failed"
   printf '%s\n' "$commit" > "$STAMP"
   chmod 600 "$STAMP" 2>/dev/null || true
+  if [ -n "$SNAPSHOT" ]; then
+    python3 "$RECORDER" record --manifest "$MANIFEST" --snapshot "$SNAPSHOT" \
+        --root "$PREFIX" --root "$BUILD_DIR" >&2 \
+      || die "could not record $MANIFEST"
+  fi
   log "built IceWM $commit"
 }
 

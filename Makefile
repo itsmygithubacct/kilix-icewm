@@ -2,7 +2,7 @@
 
 PYTHON ?= python3
 
-.PHONY: test lint icewm clean
+.PHONY: test lint icewm uninstall clean
 test:
 	$(PYTHON) -m unittest discover -s tests
 	bash -n scripts/build-icewm.sh
@@ -13,6 +13,10 @@ lint:
 
 icewm:
 	./scripts/build-icewm.sh
+
+# Removes only what the install recorded; anything else is reported and kept.
+uninstall:
+	$(PYTHON) bin/kilix-icewm --uninstall
 
 clean:
 	rm -rf src/kilix_icewm/__pycache__ tests/__pycache__

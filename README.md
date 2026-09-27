@@ -25,6 +25,7 @@ The pieces that are genuinely ours:
 | --- | --- |
 | `src/kilix_icewm/menu.py` | Generates IceWM's `menu` and `toolbar` from the Kilix content catalog and discovered XDG applications |
 | `src/kilix_icewm/session.py` | Writes IceWM a private config directory and supervises the IceWM process |
+| `src/kilix_icewm/install.py` | Records what an install created, and removes exactly that |
 | `bin/kilix-icewm` | The provider entry point Kilix launches |
 | `scripts/build-icewm.sh` | Fetches and builds the pinned IceWM on first use |
 
@@ -61,6 +62,32 @@ To use a distribution IceWM instead of building one:
 export KILIX_ICEWM_PREFIX=/usr    # must contain bin/icewm-session
 ```
 
+## Removing it again
+
+```sh
+make uninstall        # or: ./bin/kilix-icewm --uninstall
+```
+
+Every path a build creates is recorded in
+`~/.local/gpu_terminal/kilix-icewm/install-manifest`, and every configuration
+file a launch generates in `config-manifest` beside it. Both record digests
+and paths relative to that storage home, and the uninstall removes exactly
+what they list:
+
+- a file you edited or replaced is kept, named on stderr, and the command
+  exits non-zero, because the provider is then not fully removed;
+- a file you added is left alone, and the directories holding it stay with it:
+  only directories the install created are pruned, and only while empty;
+- if any component of a recorded path has become a symlink, that path is
+  refused rather than followed out of the storage home;
+- an incomplete removal keeps its manifest, so resolving the difference and
+  running the same command again finishes the job.
+
+A prefix pointed outside the storage home -- a distribution IceWM, a shared
+tree -- is never recorded and never removed. Neither is the source checkout
+under `~/.local/gpu_terminal/sources`: the Kilix installer put it there and
+owns removing it.
+
 ## Configuration is private and regenerated
 
 IceWM is pointed at `~/.local/gpu_terminal/kilix-icewm/config/icewm` through
@@ -72,6 +99,11 @@ Only the four generated filenames are writable through that path. The
 directory is one IceWM executes startup hooks from, so accepting an arbitrary
 filename there would be an arbitrary-file-write into an executable location.
 
+The generated preferences make the Windows/Super key the start button:
+`Win95Keys=1` opens IceWM's root menu on a bare left Super press (the right
+one opens the window list), and `ModSuperIsCtrlAlt=0` keeps Super a dedicated
+key instead of an alias for Ctrl+Alt combinations.
+
 Menu labels come from catalog records, so they are escaped rather than
 interpolated: a name containing a quote or a newline is neutralised instead of
 being allowed to terminate its label and become IceWM command words.
@@ -80,7 +112,7 @@ being allowed to terminate its label and become IceWM command words.
 ## Testing
 
 ```sh
-make test        # 57 tests, no X display and no built IceWM required
+make test        # 84 tests, no X display and no built IceWM required
 make lint        # shellcheck, when available
 ```
 
