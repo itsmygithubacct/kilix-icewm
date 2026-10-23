@@ -104,21 +104,22 @@ The generated preferences make the Windows/Super key the start button:
 one opens the window list), and `ModSuperIsCtrlAlt=0` keeps Super a dedicated
 key instead of an alias for Ctrl+Alt combinations.
 
-Menu labels come from catalog records, so they are escaped rather than
-interpolated: a name containing a quote or a newline is neutralised instead of
-being allowed to terminate its label and become IceWM command words.
-`tests/test_menu.py` covers that case directly.
+Menu generation follows the selected IceWM parser's actual quoting rules.
+Unsupported command, icon, working-directory or catalog rows are skipped
+individually with diagnostics; fixed desktop actions remain available.
+`tests/test_menu.py` covers this boundary, including selected-parser fixtures.
 
 ## Testing
 
 ```sh
-make test        # 84 tests, no X display and no built IceWM required
+make test        # source tests; no live X desktop required
+ICEWM_PARSER_SOURCE="$PWD/third_party/icewm" make test  # include native parser checks
 make lint        # shellcheck, when available
 ```
 
-The tests deliberately need neither an X server nor a compiled IceWM: menu
-generation and config writing are pure enough to test directly, which is why
-they are the parts split out into `src/`.
+Menu generation and configuration tests run without an X server or a running
+IceWM desktop. Parser-compatibility fixtures also compile the selected IceWM
+parser, so provide its pinned submodule and a C++ compiler for that coverage.
 
 ## Known rough edges
 
