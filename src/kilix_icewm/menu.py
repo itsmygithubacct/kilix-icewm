@@ -22,6 +22,8 @@ name become IceWM command words.
 """
 from __future__ import annotations
 
+import sys
+
 __all__ = [
     "escape_label",
     "quote_arg",
@@ -142,7 +144,19 @@ def build_menu_model(*, catalog=(), xdg_apps=(), kilix_cmd="kilix"):
         cmd = exec_cmd if isinstance(exec_cmd, (list, tuple)) else [exec_cmd]
         xdg.append(MenuEntry(name, list(cmd), app.get("icon") or "-"))
 
+    # Validate each optional row once, before both menu and toolbar rendering.
+    # A malformed application must not hide other apps or the fixed actions.
     for bucket in (games, apps, install, xdg):
+        supported = []
+        for entry in bucket:
+            try:
+                entry.render()
+            except ValueError as exc:
+                print(f"kilix-icewm: skipping menu entry {ascii(entry.label)}: {exc}",
+                      file=sys.stderr)
+            else:
+                supported.append(entry)
+        bucket[:] = supported
         bucket.sort(key=lambda e: e.label.casefold())
     return {"games": games, "apps": apps, "install": install, "xdg": xdg}
 

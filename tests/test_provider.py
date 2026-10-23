@@ -22,6 +22,46 @@ SPEC.loader.exec_module(PROVIDER)
 
 
 class TestXdgDiscovery(unittest.TestCase):
+    def test_write_config_isolates_unsupported_application_rows(self):
+        import io
+        from types import ModuleType
+
+        records = [{"name": "Valid desktop", "exec": 'viewer "two  words"'}]
+        for field, value in (("exec", 'viewer "two\twords"'),
+                             ("icon", "bad\ticon"),
+                             ("workdir", "/bad\tdir")):
+            records.append(dict({"name": "Bad " + field, "exec": "viewer"},
+                                **{field: value}))
+        records.append({"name": "Bad syntax", "exec": 'viewer "'})
+        sdk = ModuleType("kilix_sdk")
+        sdk.xdgapps = SimpleNamespace(scan=lambda: records)
+        sdk.content = None
+        catalog = [{"id": "valid", "name": "Valid catalog", "installed": True}]
+        for field, value in (("command", ["viewer", "bad\targ"]),
+                             ("icon", "bad\ticon")):
+            catalog.append(dict({"id": "bad", "name": "Bad catalog " + field,
+                                 "installed": True}, **{field: value}))
+        catalog.append({"id": "bad\tid", "name": "Bad install", "installed": False})
+        diagnostics = io.StringIO()
+        with tempfile.TemporaryDirectory() as root, \
+                mock.patch.dict("sys.modules", {"kilix_sdk": sdk}), \
+                mock.patch.object(PROVIDER, "_catalog_records", return_value=catalog), \
+                mock.patch("sys.stderr", diagnostics):
+            PROVIDER.write_config(root, kilix_cmd="kilix", terminal="kilix")
+            menu = (Path(root) / "menu").read_text()
+            toolbar = (Path(root) / "toolbar").read_text()
+        for label in ("Valid desktop", "Valid catalog", "Terminal", "Kilix Settings",
+                      "Kilix Launcher", "Log Out"):
+            self.assertIn('prog "' + label + '"', menu)
+        self.assertIn('prog "Valid catalog"', toolbar)
+        self.assertIn('prog "Terminal"', toolbar)
+        self.assertIn('prog "Settings"', toolbar)
+        self.assertNotIn('prog "Bad', menu + toolbar)
+        for label in ("Bad exec", "Bad icon", "Bad workdir", "Bad syntax",
+                      "Bad catalog command", "Bad catalog icon", "Bad install"):
+            self.assertIn(label, diagnostics.getvalue())
+        self.assertEqual(diagnostics.getvalue().count("skipping"), 7)
+
     def test_workdir_helper_runs_inside_graphical_and_terminal_entries(self):
         for terminal in (False, True):
             with self.subTest(terminal=terminal):

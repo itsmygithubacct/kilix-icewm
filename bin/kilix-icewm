@@ -160,7 +160,9 @@ def _xdg_records(sdk_xdgapps, kilix_cmd="kilix") -> list:
         command = record.get("exec")
         try:
             command = shlex.split(command) if isinstance(command, str) else list(command or ())
-        except ValueError:
+        except ValueError as exc:
+            print(f"kilix-icewm: skipping XDG entry {ascii(record.get('name'))}: {exc}",
+                  file=sys.stderr)
             continue
         if not command:
             continue
