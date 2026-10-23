@@ -21,6 +21,43 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(PROVIDER)
 
 
+class TestXdgDiscovery(unittest.TestCase):
+    def test_workdir_helper_runs_inside_graphical_and_terminal_entries(self):
+        for terminal in (False, True):
+            with self.subTest(terminal=terminal):
+                sdk = SimpleNamespace(scan=lambda: [{
+                    "name": "Viewer", "exec": 'viewer "annual  report.txt"',
+                    "workdir": "/fixture/work dir", "terminal": terminal,
+                }])
+                command = PROVIDER._xdg_records(sdk, "/host/kilix")[0]["exec"]
+                if terminal:
+                    self.assertEqual(command[:3], ["/host/kilix", "--title", "Viewer"])
+                    command = command[3:]
+                self.assertEqual(command, [PROVIDER.sys.executable,
+                    str(ROOT / "src/kilix_icewm/launch.py"),
+                    "/fixture/work dir", "viewer", "annual  report.txt"])
+
+    def test_sdk_scan_is_rendered_with_argv_and_terminal_presentation(self):
+        sdk = SimpleNamespace(scan=mock.Mock(return_value=[
+            {"name": "Native editor", "exec": 'editor --file "two words.txt"', "icon": "editor"},
+            {"name": "Console", "exec": "htop --tree", "terminal": True},
+        ]))
+        records = PROVIDER._xdg_records(sdk, "/host/kilix")
+        sdk.scan.assert_called_once_with()
+        self.assertEqual(records[0]["exec"], ["editor", "--file", "two words.txt"])
+        self.assertEqual(records[1]["exec"], ["/host/kilix", "--title", "Console", "htop", "--tree"])
+        model = PROVIDER.build_menu_model(xdg_apps=records)
+        menu = PROVIDER.render_menu(model)
+        self.assertIn('menu "Desktop Apps"', menu)
+        self.assertIn('editor --file "two words.txt"', menu)
+        self.assertIn('/host/kilix --title Console htop --tree', menu)
+
+    def test_unreadable_catalog_or_invalid_exec_does_not_break_menu(self):
+        self.assertEqual(PROVIDER._xdg_records(SimpleNamespace(scan=mock.Mock(side_effect=OSError))), [])
+        sdk = SimpleNamespace(scan=lambda: [{"name": "bad", "exec": 'unclosed "'}])
+        self.assertEqual(PROVIDER._xdg_records(sdk), [])
+
+
 class TestPresentationLoop(unittest.TestCase):
     def test_games_launch_inside_a_real_kilix_terminal_window(self):
         sdk = SimpleNamespace(menu_records=lambda: [{

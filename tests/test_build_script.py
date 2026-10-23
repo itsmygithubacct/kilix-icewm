@@ -51,5 +51,68 @@ class BuildScriptTests(unittest.TestCase):
         self.assertIn("kilix icewm", self.text)
 
 
+class PartialBuildTests(unittest.TestCase):
+    def test_failed_build_retry_retains_ownership_and_operator_files(self):
+        import os
+        import subprocess
+        import tempfile
+        import sys
+        sys.path.insert(0, str(ROOT / 'src'))
+        from kilix_icewm import install
+
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            tmp = Path(tmp)
+            storage = tmp / 'storage'
+            build = storage / 'build'
+            build.mkdir(parents=True)
+            operator = build / 'operator.txt'
+            operator.write_text('operator data')
+            stubs = tmp / 'tools'
+            stubs.mkdir()
+            scripts = {
+                'git': '''#!/bin/sh
+case "$*" in
+  *ls-tree*) echo '160000 commit pinned third_party/icewm';;
+  *rev-parse*) echo pinned;;
+esac
+''',
+                'pkg-config': '#!/bin/sh\nexit 0\n',
+                'cmake': '#!/bin/sh\nmkdir -p objects\necho cache > CMakeCache.txt\n',
+                'make': '''#!/bin/sh
+if [ "$1" = install ]; then
+  mkdir -p "$KILIX_ICEWM_STORAGE_HOME/prefix/bin"
+  printf '#!/bin/sh\\nexit 0\\n' > "$KILIX_ICEWM_STORAGE_HOME/prefix/bin/icewm-session"
+  chmod +x "$KILIX_ICEWM_STORAGE_HOME/prefix/bin/icewm-session"
+  echo "$KILIX_ICEWM_STORAGE_HOME/prefix/bin/icewm-session" > install_manifest.txt
+else
+  [ -f objects/reused.o ] || echo object > objects/reused.o
+  [ "$FAIL_BUILD" = 0 ] || exit 2
+fi
+''',
+            }
+            for name, contents in scripts.items():
+                path = stubs / name
+                path.write_text(contents)
+                path.chmod(0o700)
+            env = dict(os.environ, PATH=str(stubs) + os.pathsep + os.environ['PATH'],
+                       KILIX_ICEWM_STORAGE_HOME=str(storage),
+                       KILIX_ICEWM_PREFIX=str(storage / 'prefix'), FAIL_BUILD='1',
+                       TMPDIR=str(tmp))
+            first = subprocess.run(['bash', str(SCRIPT)], env=env, capture_output=True)
+            self.assertNotEqual(first.returncode, 0)
+            manifest = storage / 'install-manifest'
+            self.assertIn('build/objects/reused.o', manifest.read_text())
+            self.assertNotIn('operator.txt', manifest.read_text())
+            env['FAIL_BUILD'] = '0'
+            retry = subprocess.run(['bash', str(SCRIPT)], env=env, capture_output=True)
+            self.assertEqual(retry.returncode, 0, retry.stderr.decode())
+            self.assertIn('build/objects/reused.o', manifest.read_text())
+            report = install.remove(manifest)
+            self.assertTrue(report.complete)
+            self.assertFalse((build / 'objects').exists())
+            self.assertFalse((storage / 'prefix').exists())
+            self.assertEqual(operator.read_text(), 'operator data')
+
+
 if __name__ == "__main__":
     unittest.main()

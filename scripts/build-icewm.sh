@@ -20,9 +20,20 @@ MANIFEST="$STORAGE_HOME/install-manifest"
 RECORDER="$HERE/src/kilix_icewm/install.py"
 
 SNAPSHOT=""
-# Every exit path drops the pre-install directory listing, including the ones
-# `die` takes out of the middle of a build.
-cleanup() { [ -z "$SNAPSHOT" ] || rm -f -- "$SNAPSHOT"; }
+# Record partial outputs before discarding evidence, even when make fails.
+cleanup() {
+  local status=$?
+  if [ -n "$SNAPSHOT" ]; then
+    if python3 "$RECORDER" record --manifest "$MANIFEST" --snapshot "$SNAPSHOT" \
+        --root "$PREFIX" --root "$BUILD_DIR" --installed-root "$PREFIX" >&2; then
+      rm -f -- "$SNAPSHOT"
+    else
+      printf 'kilix-icewm: ownership recording failed; snapshot retained at %s\n' "$SNAPSHOT" >&2
+      status=1
+    fi
+  fi
+  exit "$status"
+}
 trap cleanup EXIT
 
 die() { printf 'kilix-icewm: %s\n' "$*" >&2; exit 1; }
@@ -163,7 +174,11 @@ build() {
     # the set of directories this build may later prune.
     SNAPSHOT="$(mktemp)" || die "could not create an install snapshot"
     python3 "$RECORDER" snapshot --root "$PREFIX" --root "$BUILD_DIR" \
-        --output "$SNAPSHOT" || die "could not inspect $STORAGE_HOME"
+        --output "$SNAPSHOT" || {
+      rm -f -- "$SNAPSHOT"
+      SNAPSHOT=""
+      die "could not inspect $STORAGE_HOME"
+    }
   else
     log "prefix is outside $STORAGE_HOME; recording no uninstall manifest"
   fi
@@ -185,8 +200,13 @@ build() {
   chmod 600 "$STAMP" 2>/dev/null || true
   if [ -n "$SNAPSHOT" ]; then
     python3 "$RECORDER" record --manifest "$MANIFEST" --snapshot "$SNAPSHOT" \
-        --root "$PREFIX" --root "$BUILD_DIR" >&2 \
+        --root "$PREFIX" --root "$BUILD_DIR" \
+        --installed-root "$PREFIX" \
+        --installed-manifest "$BUILD_DIR/install_manifest.txt" \
+        --owned-file "$STAMP" >&2 \
       || die "could not record $MANIFEST"
+    rm -f -- "$SNAPSHOT"
+    SNAPSHOT=""
   fi
   log "built IceWM $commit"
 }

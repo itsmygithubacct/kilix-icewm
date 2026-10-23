@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import sys
 import tempfile
@@ -277,18 +278,27 @@ def record_files(manifest: str, paths, directories=()) -> int:
     return _emit(manifest, files, links, recorded)
 
 
-def record_tree(manifest: str, roots, directories=()) -> int:
+def record_tree(manifest: str, roots, directories=(), *, before=None,
+                owned_paths=(), installed_roots=()) -> int:
     """Record everything below ``roots``, merging earlier directory records.
 
-    A rebuild replaces the file records wholesale -- that is the point, the
-    digests must describe the bytes now on disk -- while directory records
-    accumulate, because the second build creates none of the directories the
-    first one did and would otherwise forget it may prune them.
+    A file-aware pre-build snapshot identifies newly created/changed outputs.
+    Explicit installed paths come from CMake's install manifest. Unchanged
+    operator files are never claimed; edited formerly-owned files keep their
+    original digest so uninstall still preserves them. Without a snapshot,
+    an existing manifest can only retain its earlier ownership.
     """
     manifest = _abs(manifest)
     base = _base_of(manifest)
     manifest_rel = os.path.basename(manifest)
     files, links = [], []
+    previous = None
+    if os.path.lexists(manifest):
+        old_files, old_links, _dirs = load(manifest)
+        previous = {rel: ("file", value) for value, rel in old_files}
+        previous.update({rel: ("link", value) for value, rel in old_links})
+    owned = {_abs(path) for path in owned_paths}
+    controlled = [_abs(path) for path in installed_roots]
     for root in roots:
         root = _abs(root)
         _relative(root, base)
@@ -304,6 +314,17 @@ def record_tree(manifest: str, roots, directories=()) -> int:
                 if record is None:
                     continue
                 kind, value, rel = record
+                absolute = _abs(os.path.join(parent, name))
+                explicit = absolute in owned
+                in_prefix = any(os.path.commonpath([absolute, prefix]) == prefix
+                                for prefix in controlled)
+                changed = (not in_prefix and before is not None
+                           and before.get(absolute) != [kind, value])
+                if not explicit and not changed:
+                    if previous is not None and rel in previous:
+                        kind, value = previous[rel]
+                    elif before is not None or previous is not None:
+                        continue
                 (links if kind == "link" else files).append((value, rel))
     recorded = [_relative(path, base) for path in directories]
     recorded += _previous_directories(manifest)
@@ -375,19 +396,39 @@ def remove(manifest: str) -> Report:
 
 
 def _snapshot(args) -> int:
-    lines = sorted(scan_directories(args.root))
+    files = {}
+    for root in args.root:
+        for parent, names, filenames in os.walk(_abs(root)):
+            linked = [name for name in names if os.path.islink(os.path.join(parent, name))]
+            names[:] = [name for name in names if name not in linked]
+            for name in filenames + linked:
+                path = os.path.join(parent, name)
+                record = _classify(path, _abs(root), "")
+                if record is not None:
+                    kind, value, _rel = record
+                    files[path] = [kind, value]
+    document = {"directories": sorted(scan_directories(args.root)), "files": files}
     with open(args.output, "w", encoding="utf-8") as fh:
-        fh.write("".join(line + "\n" for line in lines))
+        json.dump(document, fh)
     return 0
 
 
 def _record(args) -> int:
-    before = set()
+    before_dirs = set()
+    before_files = None
     if args.snapshot:
         with open(args.snapshot, encoding="utf-8") as fh:
-            before = {line for line in fh.read().splitlines() if line}
-    created = sorted(scan_directories(args.root) - before)
-    count = record_tree(args.manifest, args.root, created)
+            snapshot = json.load(fh)
+        before_dirs = set(snapshot["directories"])
+        before_files = snapshot["files"]
+    owned = list(args.owned_file)
+    if args.installed_manifest:
+        with open(args.installed_manifest, encoding="utf-8") as fh:
+            owned.extend(line.rstrip("\r\n") for line in fh if line.strip())
+    created = sorted(scan_directories(args.root) - before_dirs)
+    count = record_tree(args.manifest, args.root, created,
+                        before=before_files, owned_paths=owned,
+                        installed_roots=args.installed_root)
     print(f"kilix-icewm: recorded {count} installed paths in {args.manifest}")
     return 0
 
@@ -421,6 +462,9 @@ def main(argv=None) -> int:
     record.add_argument("--manifest", required=True)
     record.add_argument("--root", action="append", required=True)
     record.add_argument("--snapshot")
+    record.add_argument("--installed-manifest")
+    record.add_argument("--installed-root", action="append", default=[])
+    record.add_argument("--owned-file", action="append", default=[])
     record.set_defaults(handler=_record)
 
     delete = sub.add_parser("remove", help="remove exactly what a manifest records")

@@ -40,6 +40,21 @@ class TestEscaping(unittest.TestCase):
 
 
 class TestQuoteArg(unittest.TestCase):
+    def test_preserves_argument_spaces(self):
+        for arg in ('annual  report.txt', ' leading ', '/apps/my  viewer'):
+            self.assertEqual(quote_arg(arg), '"' + arg + '"')
+
+    def test_rejects_controls_in_arguments(self):
+        for control in ('\n', '\r', '\t', '\x00', '\x1b', '\x7f', '\x85'):
+            with self.assertRaises(ValueError):
+                quote_arg('file' + control + 'name')
+
+    def test_quotes_apostrophes_and_preserves_backslashes(self):
+        self.assertEqual(quote_arg("Sam's.txt"), '"Sam\'s.txt"')
+        self.assertEqual(quote_arg('folder\\file'), "'folder\\file'")
+        self.assertEqual(quote_arg('trailing\\'), "'trailing\\'")
+        self.assertEqual(quote_arg("Sam's\\file"), "'Sam'\\''s\\file'")
+
     def test_bare_word_not_quoted(self):
         self.assertEqual(quote_arg("chromium"), "chromium")
 
@@ -128,6 +143,8 @@ class TestRender(unittest.TestCase):
         out = render_menu(build_menu_model())
         self.assertIn('prog "Terminal"', out)
         self.assertIn('prog "Log Out"', out)
+        self.assertIn('prog "Log Out" - icesh logout\n', out)
+        self.assertNotIn('icewm-session --logout', out)
 
     def test_fixed_tui_rows_launch_inside_the_terminal(self):
         out = render_menu(

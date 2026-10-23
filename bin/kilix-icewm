@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import shlex
 import subprocess
 import sys
 
@@ -146,17 +147,31 @@ def _catalog_records(sdk_content, kilix_cmd: str) -> list:
     return rendered
 
 
-def _xdg_records(sdk_xdgapps) -> list:
+def _xdg_records(sdk_xdgapps, kilix_cmd="kilix") -> list:
+    """Adapt the SDK's desktop-entry Exec strings into command vectors."""
     if sdk_xdgapps is None:
         return []
-    for attr in ("applications", "discover", "list_applications"):
-        fn = getattr(sdk_xdgapps, attr, None)
-        if callable(fn):
-            try:
-                return list(fn() or [])
-            except Exception:
-                return []
-    return []
+    try:
+        records = sdk_xdgapps.scan()
+    except Exception:
+        return []
+    rendered = []
+    for record in records:
+        command = record.get("exec")
+        try:
+            command = shlex.split(command) if isinstance(command, str) else list(command or ())
+        except ValueError:
+            continue
+        if not command:
+            continue
+        if record.get("workdir"):
+            command = [sys.executable,
+                       os.path.join(os.path.dirname(_HERE), "src", "kilix_icewm", "launch.py"),
+                       record["workdir"], *command]
+        if record.get("terminal"):
+            command = [kilix_cmd, "--title", record.get("name") or "Application", *command]
+        rendered.append(dict(record, exec=command))
+    return rendered
 
 
 def write_config(root: str, *, kilix_cmd: str, terminal: str,
@@ -174,7 +189,7 @@ def write_config(root: str, *, kilix_cmd: str, terminal: str,
 
     model = build_menu_model(
         catalog=_catalog_records(sdk_content, kilix_cmd),
-        xdg_apps=_xdg_records(sdk_xdgapps),
+        xdg_apps=_xdg_records(sdk_xdgapps, kilix_cmd),
         kilix_cmd=kilix_cmd,
     )
     cfg = IceWMConfig(root, manifest=manifest)

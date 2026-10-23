@@ -63,11 +63,16 @@ def quote_arg(arg: object) -> str:
     argument containing whitespace or a quote must come back quoted.
     """
     s = "" if arg is None else str(arg)
-    s = _flatten(s)
+    if any(ord(c) < 0x20 or 0x7f <= ord(c) < 0xa0 for c in s):
+        raise ValueError("IceWM command arguments cannot contain control characters")
     if s == "":
         return '""'
-    if not any(c.isspace() for c in s) and '"' not in s and "\\" not in s:
+    if not any(c.isspace() for c in s) and not any(c in s for c in "\"'\\"):
         return s
+    # IceWM only unescapes \" inside double quotes, not doubled backslashes.
+    # Single-quoted segments preserve backslashes, including a trailing one.
+    if "\\" in s:
+        return "'" + s.replace("'", "'\\''") + "'"
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
@@ -170,7 +175,8 @@ def render_menu(model, *, kilix_cmd="kilix", terminal="kilix") -> str:
     # nothing in it.
     if body:
         lines.append("separator")
-    lines.append(MenuEntry("Log Out", ["icewm-session", "--logout"]).render())
+    # Inherit the private session's DISPLAY and XAUTHORITY.
+    lines.append(MenuEntry("Log Out", ["icesh", "logout"]).render())
     return "\n".join(lines) + "\n"
 
 
